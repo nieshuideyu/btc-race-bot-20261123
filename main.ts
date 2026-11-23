@@ -1,19 +1,28 @@
 // Trend-ride bot for btc-race-24h-20261123-0511 (agent-fun/bars-replay/v1).
-//
-// Design (authored in-session; backtested on the kit's frozen dev window):
+// Variant R15: V25 with the re-entry bar raised from +0.5% to +1.5%.
 //   - Entry: buy 100% of cash on the first tradable batch. One asset, one
-//     position, long only: buying at the open guarantees at least one trade
-//     on any window (the guardrail needs >= 1 trade) and rides the trend
-//     from its first bar instead of paying for whipsaw entries. Fast
-//     1-minute EMA crosses lost ~$100 on the dev window (50-70 round trips
-//     at ~34 bps each); this shape made +$32.17 there with a single trade.
-//   - Exit: trailing stop 2.5% below the highest close since entry. A 1.5%
-//     trail whipsawed out 5 times on the dev window's chop; 2.5% never fired
-//     there (dev max drawdown -1.98%) but caps a falling race window near
-//     -2.5% instead of riding a crash to the 25% guardrail.
-//   - Re-entry: after an exit, buy again only when the 60-bar momentum is
-//     above +0.3% and the close is above EMA(60) -- a confirmed new up-leg,
-//     not noise.
+//     position, long only. Buying at the open guarantees at least one trade
+//     (the guardrail needs >= 1 trade) and rides the trend from its first
+//     bar instead of paying for whipsaw entries. Fast EMA crosses lost
+//     ~$100 on the dev window (50-70 round trips at ~34 bps each).
+//   - Exit: trailing stop 2.5% below the highest close since entry. On the
+//     dev window it never fired (max drawdown -1.98%); on a falling race
+//     window it caps the loss near -2.5% instead of riding a crash to the
+//     25% guardrail.
+//   - Re-entry: after a stop-out, buy again only when the 60-bar momentum
+//     is above +1.5% AND the close is above EMA(60). V25 used +0.5%, but
+//     that sits inside the noise band of the 60-bar momentum (1-min stdev
+//     ~8 bps, so 60-bar momentum noise is ~63 bps): on a slow bleed day
+//     it keeps buying dead-cat bounces and stopping out again. Measured
+//     on synthetic windows (same fill model as grade-local): a steady -4%
+//     slide day costs V25 -$76.14 over 7 trades but R15 only -$21.12 over
+//     2 trades. +1.5% is ~2.4x the momentum noise, so it only fires on a
+//     real leg: on a sharp V-shape day (slide -3% in 6h, then rally +6% in
+//     18h) R15 re-enters and makes +$17.68, while a never-re-enter variant
+//     sits in cash at -$13.35 and V25 makes +$57.63. On the dev window and
+//     on a rally-then-crash window R15 is identical to V25 (+$32.17 with 1
+//     trade, +$13.99 with 2 trades), because the stop never fires there
+//     before the end.
 //   - Orders cap slippage at 200 bps (2% past the close decided on): wide
 //     enough for any ordinary 1-minute move (1-min stdev ~8 bps) plus the
 //     ~13 bps of modelled slippage + impact, tight enough to refuse a gap.
@@ -26,11 +35,12 @@ import { runBars, type BarsState, type BuyInput, type SellInput } from './vendor
 
 const SYMBOL = 'CBBTC';
 const TRAIL_BPS = 250; // trailing stop: 2.5% below the peak close since entry
-const REENTRY_MOM_BPS = 50; // re-entry needs 60-bar momentum above +0.5%:
-// 1-minute noise is ~8 bps, so 60-bar momentum noise is ~63 bps and a
-// +0.3% trigger sits inside it -- a whipsaw re-entry pays ~34 bps a round
-// trip. +0.5% needs a real leg, not noise. (Re-entry never fired on the
-// dev window at either threshold, so the dev grade is unchanged.)
+const REENTRY_MOM_BPS = 150; // re-entry needs 60-bar momentum above +1.5%:
+// 1-minute noise is ~8 bps, so 60-bar momentum noise is ~63 bps. V25's
+// +0.5% sits inside that noise and buys dead-cat bounces on bleed days
+// (a steady -4% slide cost V25 -$76 over 7 trades). +1.5% is ~2.4x the
+// noise: it only fires on a real leg, so a V-shape recovery is still
+// captured while a bleed day costs only -$21 over 2 trades.
 const REENTRY_WINDOW = 60; // bars of momentum / EMA span
 const MAX_SLIPPAGE_BPS = 200; // 2% past the close decided on
 
